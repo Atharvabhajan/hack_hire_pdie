@@ -1097,6 +1097,103 @@ def render_customer_tab(df: pd.DataFrame, selected_customer: str, selected_week:
         unsafe_allow_html=True,
     )
 
+    st.markdown("---")
+
+    # ── Prevention Strategy Logic ──
+    st.markdown("##### Prevention Strategy Logic")
+    st.markdown(
+        '<p class="section-desc">'
+        'How detected signals map to preventive actions designed to reduce delinquency risk.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
+    signal_to_mechanism = {
+        "salary_delay_days": "EMI date realignment / grace period",
+        "savings_drop_pct": "Temporary liquidity support / short deferment",
+        "discretionary_spend_change_pct": "Budget advisory + soft reminder",
+        "utility_payment_delay_days": "Payment prioritization alert",
+        "lending_app_upi_txn_count": "Offer lower-cost internal credit",
+        "atm_withdrawal_spike_pct": "Liquidity stress outreach",
+        "failed_autodebit": "Mandate re-authorization flow",
+    }
+
+    strategy_rows = []
+    for feature, contribution in selected_top3:
+        mechanism = signal_to_mechanism.get(feature, "Custom intervention")
+        strategy_rows.append({
+            "Triggered Signal": FEATURE_LABELS[feature],
+            "Preventive Mechanism": mechanism,
+        })
+
+    strategy_df = pd.DataFrame(strategy_rows)
+    st.dataframe(
+        strategy_df.style
+        .set_properties(**{"text-align": "left"})
+        .set_properties(**{"padding": "12px"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("")
+
+    # ── Estimated Impact After Intervention ──
+    st.markdown("##### Estimated Impact (Scenario-Based Projection)")
+    st.markdown(
+        '<p class="section-desc">'
+        'Scenario-based risk adjustment contingent on intervention acceptance and execution effectiveness.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
+    reduction_factor = 0.0
+    if tier == "High":
+        reduction_factor = 0.40
+    elif tier == "Medium":
+        reduction_factor = 0.20
+    else:
+        reduction_factor = 0.05
+
+    adjusted_score = score * (1 - reduction_factor)
+    adjusted_tier = _tier(adjusted_score)
+
+    st.markdown(
+        '<div style="font-size:0.82rem; color:#64748b; margin-bottom:16px; font-style:italic;"'
+        '>Assumed intervention acceptance rate: 60%</div>',
+        unsafe_allow_html=True,
+    )
+
+    before_col, after_col = st.columns(2)
+
+    with before_col:
+        st.markdown(
+            f'<div class="card" style="background:linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);">'
+            f'<div class="card-title">Before Intervention</div>'
+            f'<div style="font-size:0.88rem; color:#7f1d1d; line-height:1.8; margin-top:12px;">'
+            f'Risk Score: <b style="font-size:1.2rem;">{score:.3f}</b><br>'
+            f'Risk Tier: <span class="pill pill-{tier.lower()}" style="margin-top:8px;">{tier}</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    with after_col:
+        st.markdown(
+            f'<div class="card" style="background:linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);">'
+            f'<div class="card-title">Expected Post-Intervention Risk (If Accepted)</div>'
+            f'<div style="font-size:0.88rem; color:#045e3d; line-height:1.8; margin-top:12px;">'
+            f'Risk Score: <b style="font-size:1.2rem;">{adjusted_score:.3f}</b><br>'
+            f'Risk Tier: <span class="pill pill-{adjusted_tier.lower()}" style="margin-top:8px;">{adjusted_tier}</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        '<p class="note" style="margin-top:16px; padding:0;">'
+        'Scenario projection based on assumed intervention effectiveness and customer acceptance probability. '
+        'Actual outcomes may vary depending on execution quality and customer response.</p>',
+        unsafe_allow_html=True,
+    )
+
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Impact Simulation tab
@@ -1350,13 +1447,96 @@ def render_impact_tab(latest: pd.DataFrame):
     st.plotly_chart(fig, use_container_width=True)
 
     # ── Explanation ──
+    st.markdown("")
+
+    # ── Prevention Funnel ──
+    st.markdown("##### Prevention Funnel")
+    st.markdown(
+        '<p class="section-desc">'
+        'Operational flow showing how early detection converts high-risk accounts into prevention outcomes.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Compute funnel stages
+    flagged_count = eligible_cases
+    contacted_count = min(eligible_cases, outreach_capacity)
+    accepting_rate = 0.60
+    accepting_count = int(contacted_count * accepting_rate)
+    defaults_avoided = int(
+        (contacted_high * eff_high * accepting_rate) +
+        (contacted_medium * eff_medium * accepting_rate)
+    )
+
+    funnel_data = {
+        "Stage": [
+            "Customers Flagged\n(High + Medium Risk)",
+            "Customers Contacted\n(This Week)",
+            "Accepting Intervention\n(Simulated 60%)",
+            "Defaults Avoided\n(Intervention Effective)",
+        ],
+        "Count": [flagged_count, contacted_count, accepting_count, defaults_avoided],
+    }
+    funnel_df = pd.DataFrame(funnel_data)
+
+    fig = go.Figure()
+    colors = ["#3b82f6", "#10b981", "#f59e0b", "#10b981"]
+    for idx, row in funnel_df.iterrows():
+        fig.add_trace(go.Bar(
+            x=[row["Count"]],
+            y=[row["Stage"]],
+            orientation="h",
+            marker_color=colors[idx],
+            text=f"{int(row['Count'])} customers",
+            textposition="auto",
+            textfont=dict(size=11, color="#ffffff", family="Inter"),
+            hovertemplate=f"<b>{row['Stage']}</b><br>Count: {int(row['Count'])}<extra></extra>",
+            showlegend=False,
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text="Operational Prevention Funnel",
+            font=dict(size=14, family="Inter", color="#334155"),
+            x=0, xanchor="left",
+        ),
+        xaxis=dict(
+            title="Number of Customers",
+            gridcolor="#f1f5f9",
+            tickfont=dict(size=11),
+        ),
+        yaxis=dict(
+            tickfont=dict(size=11),
+            autorange="reversed",
+        ),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=50, b=10),
+        height=340,
+        font=dict(family="Inter, sans-serif"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown(
+        '<div class="card" style="margin-top:8px; background:#f9fafb; border:1px solid #e5e7eb;">'
+        '<div style="font-size:0.85rem; color:#64748b; line-height:1.7;">'
+        '<b>How the Funnel Works:</b> Total flagged accounts are segmented by outreach capacity. '
+        'A simulated 60% acceptance rate reflects realistic customer response. '
+        'Intervention effectiveness (based on tier) yields the projected default-avoidance count.'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("")
+
+    # ── Explanation ──
     st.markdown(
         '<div class="card" style="margin-top:8px;">'
-        '<div style="font-size:0.86rem; color:#475569; line-height:1.7;">'
+        '<div style="font-size:0.86rem; color:#475569; line-height:1.7;">'  
         'Early detection reduces delinquency progression by intervening <b>before</b> EMI failure, '
         'lowering credit losses and collection expenses. The engine identifies at-risk customers '
-        'weeks ahead of default, enabling proactive outreach \u2014 EMI date shifts, restructuring offers, '
-        'or budgeting support \u2014 that materially reduces the probability of missed payments.'
+        'weeks ahead of default, enabling proactive outreach — EMI date shifts, restructuring offers, '
+        'or budgeting support — that materially reduces the probability of missed payments.'
         '</div>'
         '<div style="font-size:0.82rem; color:#64748b; line-height:1.6; margin-top:12px; '
         'padding-top:10px; border-top:1px solid #f1f5f9;">'
